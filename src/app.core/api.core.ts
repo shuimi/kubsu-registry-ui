@@ -1,46 +1,33 @@
-import { Api, ApiEndpoint, ApiEndpoints, ApiMethods } from 'core'
 import { useEffect, useState } from 'react'
+import axios, { AxiosInstance } from 'axios'
 
-export function createApi(baseUrl: string, endpoints: Array<ApiEndpoint>): Api {
+export const $api = axios.create()
 
-	const endpointsMap: ApiEndpoints = {} as const
-
-	endpoints.forEach((endpoint) => {
-		endpointsMap[endpoint.name] = endpoint
-	})
-
-
-	return {
-		baseUrl: baseUrl,
-		endpoints: endpointsMap,
-	}
+export type Pagination<Data> = {
+	count: number,
+	rows: Array<Data>
 }
 
-export function createEndpoint(name: string, url: string, methods: Array<ApiMethods>): ApiEndpoint {
-	return {
-		name: name,
-		url: url,
-		methods: methods
-	}
+export type PaginationOptions = {
+	items: number,
+	page: number,
 }
 
-const api = createApi('quban.tech', [
-	createEndpoint('users', '/users', ['GET', 'PUT']),
-	createEndpoint('profile', '/profiles', ['GET', 'PUT']),
-])
-
-
-export type QueryParams = Array<{ name: string, query: string }>
-
-
-export function useResource<DataModel, CreateDto>(endpoint: ApiEndpoint) {
+export function useResource<DataModel, CreateDto>(
+	endpoint: string,
+	api: AxiosInstance,
+	options?: {
+		pagination?: PaginationOptions,
+		searchQuery?: string
+	}
+) {
+	const [items, setItems] = useState(options?.pagination?.items || 10)
+	const [page, setPage] = useState(options?.pagination?.page || 0)
+	const [searchQuery, setSearchQuery] = useState(options?.pagination?.page || '')
 
 	const [error, setError] = useState(null)
-
 	const [isFetching, setFetching] = useState<boolean>(false)
-
-	const [data, setData] = useState<Array<DataModel> | null>(null)
-
+	const [data, setData] = useState<Pagination<DataModel> | null>(null)
 
 	function doFetchingOperation(operation: () => any) {
 		setFetching(true)
@@ -53,101 +40,92 @@ export function useResource<DataModel, CreateDto>(endpoint: ApiEndpoint) {
 		setError(null)
 	}
 
-	function getSingleEntity() {
-		return {} as DataModel
+	function getResource() {
+		return doFetchingOperation(() => {
+
+			let endpointWithQuery = `${endpoint}?`
+
+			if (items){
+				endpointWithQuery = endpointWithQuery + `items=${items}&`
+			}
+			if (page){
+				endpointWithQuery = endpointWithQuery + `page=${page}&`
+			}
+			if (searchQuery){
+				endpointWithQuery = endpointWithQuery + `query=${searchQuery}`
+			}
+
+			api.get<Pagination<DataModel>>(endpointWithQuery)
+				.then((response) => {
+					resetError()
+					setData(response.data)
+				})
+				.catch((error) => {
+					setError(error)
+				})
+			return data
+		})
 	}
 
-	function getResource(options?: {
-		id?: number,
-		pagination?: {
-			pages: number,
-			items?: number
-		}
-	}) {
-		return doFetchingOperation(() => {
-			return {} as Array<DataModel>
-		})
+	function updateResourceState(){
+		const data = getResource()
+		setData(data)
 	}
 
 	function createResource(data: CreateDto){
-
 		doFetchingOperation(() => {
-
-			return
+			api.post<Array<DataModel>>(`${endpoint}`, data)
+				.then((response) => {
+					resetError()
+				})
+				.catch((error) => {
+					setError(error)
+				})
+			return data
 		})
+		updateResourceState()
 		return actions
 	}
-
-	function updateResource(data: DataModel, options?: {
-		id?: number
-	}){
-
-		doFetchingOperation(() => {
-
-			return
-		})
-		return actions
-	}
-
-	function deleteResource(options?: {
-		id?: number
-	}){
-
-		doFetchingOperation(() => {
-
-			return
-		})
-		return actions
-	}
-
 
 	const actions = {
-		get: getResource,
 		create: createResource,
-		update: updateResource,
-		delete: deleteResource,
 	}
 
 
 	useEffect(() => {
-		const data = getResource()
-		setData(data)
+		updateResourceState()
 	}, [])
 
+	useEffect(() => {
+		updateResourceState()
+	}, [items, page, searchQuery])
+
+	const log = () => {
+		console.log(`endpoint: ${endpoint} -- data: `, data)
+	}
+
+
+	const totalPages = ~~((data?.count || 0) / items) + 1
 
 	return {
 		data: data,
 		state: {
 			isFetching: isFetching,
 			error: error,
+			pagination: {
+				items,
+				setItems,
+				page,
+				setPage,
+				totalPages
+			},
+			search: {
+				searchQuery,
+				setSearchQuery
+			}
 		},
 		do: actions,
+		log: log,
 	}
 
 }
-
-
-
-
-const resource = useResource<{
-	firstname: string,
-	lastname: string,
-}, {
-	firstname: string,
-}>(api.endpoints.profile)
-
-
-const user = resource.do
-	.delete({
-		id: 12
-	})
-	.create({
-		firstname: 'Kek'
-	})
-	.get({
-		id: 142,
-		pagination: {
-			pages: 10,
-			items: 12,
-		}
-	})
